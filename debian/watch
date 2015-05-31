@@ -1,0 +1,3 @@
+version=3
+opts=filenamemangle=s/.*\/v?(\d\S*)\.tar\.gz/sachesi-$1\.tar\.gz/,uversionmangle=s/(\d)[_\.\-\+]?((RC|rc|pre|dev|beta|alpha)\d*)$/$1~$2/ \
+https://github.com/xsacha/Sachesi/tags .*/v?(\d\S*)\.tar\.gz

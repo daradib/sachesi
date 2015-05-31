@@ -1,0 +1,6 @@
+ - Request OpenSSL linking exception or link against GnuTLS.
+ - Address upstream copies of third-party libraries.
+ - Add copyright file.
+ - Add manpage for sachesi binary.
+ - Add Vcs field to control file.
+ - Add ITP bug number to changelog before releasing.

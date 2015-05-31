@@ -1,0 +1,21 @@
+Source: sachesi
+Section: comm
+Priority: extra
+Maintainer: Dara Adib <daradib@ocf.berkeley.edu>
+Build-Depends: debhelper (>= 9), qtdeclarative5-dev, qttools5-dev-tools,
+ liblzo2-dev, libquazip-qt5-dev, libssl-dev, libusb-1.0-0-dev
+Standards-Version: 3.9.6
+Homepage: https://github.com/xsacha/Sachesi
+#Vcs-Git: git://anonscm.debian.org/collab-maint/sachesi.git
+#Vcs-Browser: http://anonscm.debian.org/?p=collab-maint/sachesi.git;a=summary
+
+Package: sachesi
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, qml-module-qtquick-controls,
+ qml-module-qtquick-dialogs, qml-module-qt-labs-settings
+Description: BlackBerry 10 device sideloader and backup utility
+ Sachesi installs applications and firmware on BlackBerry 10 devices.
+ It can also back up, restore, and wipe data.
+ .
+ Sachesi mimics communications performed by official BlackBerry tools.
+ None of its activities require development mode.

@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+export QT_SELECT=5
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	lrelease Sachesi.pro
+	dh_auto_configure -- CONFIG+='shared_lzo2 shared_quazip'
+
+override_dh_auto_install:
+	install -D -m 0755 Sachesi debian/sachesi/usr/bin/sachesi
+	dh_auto_install
