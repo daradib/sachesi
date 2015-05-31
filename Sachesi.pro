@@ -8,7 +8,7 @@ VERSION = 2.0.1
 
 # Global specific
 CONFIG += c++11
-INCLUDEPATH += ext src
+INCLUDEPATH += src
 P = $$_PRO_FILE_PWD_
 
 win32 {
@@ -58,12 +58,11 @@ else:android {
     ANDROID_PACKAGE_SOURCE_DIR = $$P/Android
     DEFINES += BOOTLOADER_ACCESS
 } else {
-    shared_quazip: LIBS += -lquazip
+    shared_quazip: LIBS += -lquazip-qt5
     shared_lzo2 {
         LIBS += -llzo2
         DEFINES += _LZO2_SHARED
     }
-    LIBS += -lz -ldl -ludev
     # These below should be static for it to be fully portable (changing ABIs)
     LIBS += -lcrypto -lusb-1.0
     DEFINES += BOOTLOADER_ACCESS
