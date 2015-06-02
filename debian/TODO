@@ -2,5 +2,7 @@
  - Address upstream copies of third-party libraries.
  - Add copyright file.
  - Add manpage for sachesi binary.
+ - Package translations.
+ - Add bar mimetype handler.
  - Add Vcs field to control file.
  - Add ITP bug number to changelog before releasing.
