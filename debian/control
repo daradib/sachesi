@@ -13,7 +13,7 @@ Package: sachesi
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, qml-module-qtquick-controls,
  qml-module-qtquick-dialogs, qml-module-qt-labs-settings
-Description: BlackBerry 10 device sideloader and backup utility
+Description: BlackBerry 10 device utility
  Sachesi installs applications and firmware on BlackBerry 10 devices.
  It can also back up, restore, and wipe data.
  .

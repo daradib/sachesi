@@ -2,7 +2,7 @@
 Type=Application
 Version=1.0
 Name=Sachesi
-Comment=Blackberry 10 device sideloader and backup utility
+Comment=Blackberry 10 device utility
 Icon=sachesi
 Exec=/usr/bin/sachesi
 Terminal=false
