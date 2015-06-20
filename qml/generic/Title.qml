@@ -6,7 +6,7 @@ import "UI" 1.0
 
 ApplicationWindow {
     id: window
-    title: "Sachesi " + version + " RC"
+    title: "Sachesi " + version
     width: 820
     height: 680
     minimumHeight: 540
@@ -77,7 +77,7 @@ ApplicationWindow {
 
         Tab {
             title: qsTr("Device") + translator.lang
-            Device { anchors.fill: parent; }
+            Device { anchors.fill: parent }
         }
         Tab {
             title: qsTr("Extract") + translator.lang

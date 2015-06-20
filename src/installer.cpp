@@ -15,6 +15,8 @@
 // Official GIT repository and contact information can be found at
 // http://github.com/xsacha/Sachesi
 
+#define DEBUG_LOG 0
+
 #include "installer.h"
 #include "ports.h"
 #include <QAbstractListModel>
@@ -23,7 +25,7 @@
 #include <QNetworkInterface>
 
 InstallNet::InstallNet( QObject* parent) : QObject(parent),
-    manager(nullptr), reply(nullptr), cookieJar(nullptr), device(nullptr),
+    device(nullptr), manager(nullptr), reply(nullptr), cookieJar(nullptr),
     _wrongPass(false), _loginBlock(false),
     _state(0), _dlBytes(0), _dlTotal(0), _dgProgress(-1), _curDGProgress(-1),
     _completed(false), _extractInstallZip(false), _allowDowngrades(false), _installing(false), _restoring(false), _backing(false),
@@ -205,59 +207,6 @@ BarInfo InstallNet::checkInstallableInfo(QString name, bool blitz)
     return barInfo;
 }
 
-BarInfo InstallNet::blitzCheck(QString name)
-{
-    BarInfo barInfo = {name, "", "", NotInstallableType};
-    // Check if it's a 'hidden' file as we use these for temporary file downloads.
-    if (QFileInfo(name).fileName().startsWith('.'))
-        return barInfo;
-
-    QuaZipFile manifest(name, "META-INF/MANIFEST.MF", QuaZip::csSensitive);
-    if (!manifest.open(QIODevice::ReadOnly))
-        return barInfo;
-    QString appName, type;
-    while (!manifest.atEnd()) {
-        QByteArray newLine = manifest.readLine();
-        if (newLine.startsWith("Package-Name:")  || newLine.startsWith("Patch-Package-Name:")) {
-            appName = newLine.split(':').last().simplified();
-            if (newLine.startsWith("Patch") && type == "system") {
-                if (appName.contains("radio"))
-                    barInfo.type = RadioType;
-                else
-                    barInfo.type = OSType;
-            }
-        }
-        else if (newLine.startsWith("Package-Type:")  || newLine.startsWith("Patch-Package-Type:")) {
-            type = newLine.split(':').last().simplified();
-            if (type == "system" && barInfo.type == NotInstallableType)
-                barInfo.type = OSType;
-            else if (type != "patch")
-                break;
-        }
-        else if (newLine.startsWith("System-Type:")) {
-            if (newLine.split(':').last().simplified() == "radio")
-                barInfo.type = RadioType;
-            break;
-        }
-    }
-    if (barInfo.type != OSType && barInfo.type != RadioType)
-        return barInfo;
-
-    barInfo.name = "GOOD";
-    if (barInfo.type == OSType) {
-        QString installableOS = appName.split("os.").last().remove(".desktop").replace("verizon", "factory");
-        if (_knownConnectedOSType != "" && installableOS != _knownConnectedOSType && !(installableOS.contains("8974") && _knownConnectedOSType.contains("8974"))) {
-            barInfo.name = "BAD";
-        }
-    } else if (barInfo.type == RadioType) {
-        QString installableRadio = appName.split("radio.").last().remove(".omadm");
-        if (_knownConnectedRadioType != "" && installableRadio != _knownConnectedRadioType) {
-            barInfo.name = "BAD";
-        }
-    }
-    return barInfo;
-}
-
 void InstallNet::install(QList<QUrl> files)
 {
     _installInfo.clear();
@@ -339,36 +288,22 @@ void InstallNet::install(QList<QUrl> files)
     }
 
     // Detect Blitz files (second pass)
-    bool blitzOSIsSafe = false;
-    bool blitzRadioIsSafe = false;
-    int radioCount = 0, osCount = 0;
-    foreach(QString barFile, filenames)
-    {
-        BarInfo info = blitzCheck(barFile);
-        if (info.type == OSType) {
-            osCount++;
-            if (info.name == "GOOD")
-                blitzOSIsSafe = true;
-        } else if (info.type == RadioType) {
-            radioCount++;
-            if (info.name == "GOOD")
-                blitzRadioIsSafe = true;
-        }
-    }
-    if (osCount > 1 || radioCount > 1) {
+    BlitzInfo blitz(filenames, _knownConnectedOSType, _knownConnectedRadioType);
+
+    if (blitz.isBlitz()) {
         setNewLine(QString("%1 Blitz detected. %2 OSes and %3 Radios")
-                   .arg((blitzOSIsSafe && blitzRadioIsSafe) ? "Safe " : "Unsafe")
-                   .arg(osCount)
-                   .arg(radioCount));
-        if (_knownConnectedRadioType == "" && radioCount > 1) {
+                   .arg(blitz.isSafe() ? "Safe " : "Unsafe")
+                   .arg(blitz.osCount)
+                   .arg(blitz.radioCount));
+        if (_knownConnectedRadioType == "" && blitz.radioCount > 1) {
             QMessageBox::critical(nullptr, "Error", "Your device is reporting no Radio. The blitz install is unable to detect the correct Radio for your system and cannot continue.");
             return;
-        } else if (_knownConnectedOSType == "" && osCount > 1) {
+        } else if (_knownConnectedOSType == "" && blitz.osCount > 1) {
             QMessageBox::critical(nullptr, "Error", "Your device is reporting no OS. The blitz install is unable to detect the correct OS for your system and cannot continue.");
             return;
         }
-        if (!blitzOSIsSafe || !blitzRadioIsSafe) {
-            QMessageBox::critical(nullptr, "Error", QString("The blitz file does not contain compatible firmware.") + (!blitzOSIsSafe ? "\nNo compatible OS" : "") + (!blitzRadioIsSafe ? "\nNo compatible Radio" : ""));
+        if (!blitz.isSafe()) {
+            QMessageBox::critical(nullptr, "Error", QString("The blitz file does not contain compatible firmware.") + (!blitz.osIsSafe ? "\nNo compatible OS" : "") + (!blitz.radioIsSafe ? "\nNo compatible Radio" : ""));
             return;
         }
     }
@@ -377,7 +312,7 @@ void InstallNet::install(QList<QUrl> files)
     // Detect everything (third pass)
     foreach(QString barFile, filenames)
     {
-        BarInfo info = checkInstallableInfo(barFile, osCount > 1 || radioCount > 1);
+        BarInfo info = checkInstallableInfo(barFile, blitz.isBlitz());
         if (info.name == "EXIT")
             return setNewLine("Install aborted.");
         else if (info.type == AppType) {
@@ -443,6 +378,7 @@ void InstallNet::install()
 
 void InstallNet::uninstall(QStringList packageids, bool firmwareUpdate)
 {
+    Q_UNUSED(firmwareUpdate) // Dangerous!
     // Tested with OS and it removed the old OS. Not entirely what I wanted.
     if (packageids.isEmpty())
         return;
@@ -531,9 +467,26 @@ void InstallNet::backup()
         delete manifest;
 
         QUrlQuery postData;
-        postData.addQueryItem("action", "backup");
-        postData.addQueryItem("mode", _back.modeString());
-        postQuery("backup.cgi", "x-www-form-urlencoded", postData);
+        //postData.addQueryItem("action", "backup");
+        if (_back.rev() == 2) {
+            /*QString packageXML = "<Packages>";
+            packageXML += "<Package category=\"app\" pkgid=\"gYABgGhMIKEe6t-zx-otuOtK1JM\" type=\"data\"/>";
+            packageXML += "<Package category=\"app\" pkgid=\"andrBnWwO_pMnqtLJ4heAlnaufQ\" type=\"data\"/>";
+            packageXML += "</Packages>";
+            QNetworkRequest request = setData("backup.cgi?opt=rev2&mode=" + _back.modeString(), "x-www-form-urlencoded");
+            reply = manager->post(request, packageXML.toLatin1());
+
+            //connect(reply, SIGNAL(uploadProgress(qint64,qint64)), this, SLOT(installProgress(qint64,qint64)));
+            connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
+                    this, SLOT(restoreError(QNetworkReply::NetworkError)));
+            connect(reply, SIGNAL(finished()), this, SLOT(restoreReply()));*/
+            postData.addQueryItem("mode", _back.modeString());
+            postData.addQueryItem("opt", "rev2");
+            postQuery("backup.cgi", "x-www-form-urlencoded", postData);
+        } else {
+            postData.addQueryItem("mode", _back.modeString());
+            postQuery("backup.cgi", "x-www-form-urlencoded", postData);
+        }
     }
 }
 
@@ -555,8 +508,10 @@ void InstallNet::backupQuery() {
     if (checkLogin())
     {
         QUrlQuery postData;
-        postData.addQueryItem("action", "backup");
+        //postData.addQueryItem("action", "backup");
         postData.addQueryItem("query", "list");
+        if (_back.rev() == 2)
+            postData.addQueryItem("opt", "rev2"); // Per-app backups
         postQuery("backup.cgi", "x-www-form-urlencoded", postData);
     }
 }
@@ -850,35 +805,14 @@ void InstallNet::backupFileFinish()
     postQuery("backup.cgi", "x-www-form-urlencoded", postData);
 }
 
-QPair<QString,QString> InstallNet::getConnected(int downloadDevice) {
-    QPair<QString,QString> ret = {"", ""};
+QPair<QString,QString> InstallNet::getConnected(int downloadDevice, bool specialQ30) {
     if (downloadDevice == 0) {
         if (device != nullptr && device->hw != "" && device->hw != "Unknown") {
-            ret = qMakePair(_knownConnectedOSType, _knownConnectedRadioType);
+            return qMakePair(_knownConnectedOSType, _knownConnectedRadioType);
         }
-    } else {
-        switch(downloadDevice) {
-        case Z30Family:
-            ret = {"qc8960.factory_sfi", "qc8960.wtr5"};
-            break;
-        case OMAPFamily:
-            ret = {"winchester.factory_sfi", "m5730"};
-            break;
-        case Z10Family:
-            ret = {"qc8960.factory_sfi", "qc8960"};
-            break;
-        case Z3Family:
-            ret = {"qc8960.factory_sfi", "qc8930.wtr5"};
-            break;
-        case Q30Family:
-            ret = {"qc8960.factory_sfi_hybrid_qc8974", "qc8974.wtr2"};
-            break;
-        case Q10Family:
-            ret = {"qc8960.factory_sfi", "qc8960.wtr"};
-            break;
-        }
+        return {"", ""};
     }
-    return ret;
+    return getFamilyFromDevice(downloadDevice, specialQ30);
 }
 
 void InstallNet::determineDeviceFamily()
@@ -907,7 +841,9 @@ void InstallNet::restoreReply()
         return;
 
     QByteArray data = reply->readAll();
-    //for (int s = 0; s < data.size(); s+=3500) qDebug() << "Message:\n" << QString(data).simplified().mid(s, 3500);
+#if DEBUG_LOG
+    for (int s = 0; s < data.size(); s+=3500) qDebug() << "Message:\n" << QString(data).simplified().mid(s, 3500);
+#endif
     if (data.size() == 0) {
         if (_restoring) {
             QMessageBox::information(nullptr, "Restore Error", "There was an error loading the backup file.\nThe device encountered an unrecoverable bug.\nIt is not designed to restore this backup.");
@@ -921,6 +857,12 @@ void InstallNet::restoreReply()
     QXmlStreamReader xml(data);
     xml.readNextStartElement(); // RimTabletResponse
     xml.readNextStartElement();
+    QString hwid;
+    if (xml.name() == "Rev") {
+        xml.readNextStartElement();
+        xml.readNextStartElement();
+    }
+
     if (xml.name() == "AuthChallenge")
     { // We need to verify
         QString salt, challenge;
@@ -991,7 +933,7 @@ void InstallNet::restoreReply()
             restore();
         else /*if (_hadPassword)*/
             scanProps();
-        // This can take up to 25 seconds to respond and all communication on device is Blocking!
+        // This can take up to 40 seconds to respond and all communication on device is Blocking!
         // backupQuery();
     }
     else if (xml.name() == "DynamicProperties")
@@ -1069,7 +1011,7 @@ void InstallNet::restoreReply()
                 else if (name == "HardwareID") {
                     // If the firmware reports the device as unknown (eg. Dev Alpha on 10.3), show the Hardware ID
                     if (device->hw == "Unknown") {
-                        QString hwid = xml.readElementText().remove(0, 2);
+                        hwid = xml.readElementText().remove(0, 2);
                         // If we already know the name, make it nicer
                         if (hwid == "8d00270a")
                             hwid = "Alpha C";
@@ -1097,6 +1039,24 @@ void InstallNet::restoreReply()
                 }
             }
         }
+        // We do have the radio type but we don't entirely trust it. The user could have installed anything or nothing!
+        QString temporaryRadioType = _knownConnectedRadioType;
+        _knownConnectedRadioType = "";
+        // Not future-proof, but will work for most. Families # hardcoded to 5
+        for (int i = 1; i < (5 * 2) && _knownConnectedRadioType.isEmpty(); i+=2) {
+            for (int j = 0; j < dev[i].count(); j++) {
+                if (dev[i][j] == hwid.toUpper()) {
+                    // Q30 OS status doesn't matter, so we set 0
+                    _knownConnectedRadioType = getFamilyFromDevice(j + 1, 0).second;
+                    break;
+                }
+            }
+        }
+        // Well, our detection failed, so let's trust the current system.
+        if (_knownConnectedRadioType.isEmpty()) {
+            _knownConnectedRadioType = temporaryRadioType;
+        }
+        // Now we can work out the real family
         determineDeviceFamily();
         std::sort(_appList.begin(), _appList.end(),
                   [=](const Apps* i, const Apps* j) {
@@ -1353,7 +1313,7 @@ void InstallNet::restoreReply()
     else if (xml.name() == "BackupCheck")
     {
         if (_back.curMode() != "complete") {
-            postData.addQueryItem("action", "backup");
+            //postData.addQueryItem("action", "backup");
             postData.addQueryItem("type", _back.curMode());
             reply = manager->post(setData("backup.cgi", "x-www-form-urlencoded"), postData.encodedQuery());
             _zipFile = new QuaZipFile(currentBackupZip);
@@ -1381,10 +1341,14 @@ void InstallNet::restoreReply()
         _back.clearModes();
         while(!xml.atEnd() && !xml.hasError()) {
             QXmlStreamReader::TokenType token = xml.readNext();
-            if(token == QXmlStreamReader::StartElement && xml.attributes().count() > 3 && xml.attributes().at(0).name() == "id") {
-                _back.addMode(xml.attributes());
+            if(token == QXmlStreamReader::StartElement && xml.attributes().count() > 3) {
+                if (xml.attributes().at(0).name() == "id")
+                    _back.addMode(xml.attributes());
+                else if (xml.attributes().at(0).name() == "pkgid")
+                    _back.addApp(xml.attributes());
             }
         }
+        _back.sortApps();
     }
     else if (xml.name() == "BackupStart")
     {
@@ -1393,14 +1357,29 @@ void InstallNet::restoreReply()
             setRestoring(false);
             return;
         }
-        postData.addQueryItem("action", "backup");
-        postData.addQueryItem("type", _back.curMode());
+
+        postData.addQueryItem("query", "activity");
+        if (_back.rev() == 2)
+            postData.addQueryItem("opt", "rev2");
         postQuery("backup.cgi", "x-www-form-urlencoded", postData);
     }
     else if (xml.name() == "BackupStartActivity")
     {
         postData.addQueryItem("type", _back.curMode());
+
+        if (_back.rev() == 2) {
+            postData.addQueryItem("opt", "rev2");
+
+            if (_back.curMode() == "app") {
+                // Select app by pkgid:
+                postData.addQueryItem("pkgid", "gYABgGhMIKEe6t-zx-otuOtK1JM");
+                // Select apps by pkgtype (system, bin, data):
+                postData.addQueryItem("pkgtype", "data");
+            }
+        }
+
         reply = manager->post(setData("backup.cgi", "x-www-form-urlencoded"), postData.encodedQuery());
+
         connect(reply, SIGNAL(error(QNetworkReply::NetworkError)),
                 this, SLOT(restoreError(QNetworkReply::NetworkError)));
 

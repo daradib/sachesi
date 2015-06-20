@@ -65,6 +65,11 @@ QQmlListProperty<Apps> InstallNet::appList()
     return QQmlListProperty<Apps>(this, _appList);
 }
 
+QQmlListProperty<Apps> InstallNet::backAppList()
+{
+    return QQmlListProperty<Apps>(this, _back.apps);
+}
+
 void InstallNet::setIp(const QString &ip)
 {
     _ip = ip;
@@ -124,7 +129,7 @@ QStringList InstallNet::backNames() const {
 QList<double> InstallNet::backSizes() const {
     QList<double> sizes;
     foreach(BackupCategory* cat, _back.categories)
-        sizes.append(cat->bytesize.toLongLong() / (double)(1024.0 * 1024.0));
+        sizes.append(cat->bytesize.toLongLong());
     return sizes;
 }
 

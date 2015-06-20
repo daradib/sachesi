@@ -30,6 +30,8 @@ MainNet::MainNet(InstallNet *installer, QObject* parent)
 {
     manager = new QNetworkAccessManager();
     currentDownload = new DownloadInfo();
+    if (_i != nullptr)
+        connect(_i, SIGNAL(appListChanged()), this, SLOT(newDeviceConnected()));
 }
 
 MainNet::~MainNet()
@@ -174,7 +176,8 @@ void MainNet::abortSplit()
 
 void MainNet::grabLinks(int downloadDevice)
 {
-    writeDisplayFile("Updates", convertLinks(downloadDevice, "Links have been converted to work on your selected device.\n\n").toLocal8Bit());
+    _downloadDevice = downloadDevice;
+    writeDisplayFile("Updates", convertLinks("Links have been converted to work on your selected device.\n\n").toLocal8Bit());
 }
 
 QString MainNet::fixVariantName(QString name, QString replace, int type) {
@@ -200,48 +203,49 @@ QString MainNet::fixVariantName(QString name, QString replace, int type) {
 
 // Permanently converts the currentDownload object apps to the current 'Download Device'
 // Important not to change this object during the, rather large, download!
-void MainNet::fixApps(int downloadDevice) {
-#ifndef BLACKBERRY
-    QPair<QString,QString> results = _i->getConnected(downloadDevice);
+void MainNet::fixApps() {
+if (_i != nullptr) {
+    QPair<QString,QString> results = _i->getConnected(_downloadDevice, _versionRelease.startsWith("10.3.0"));
     if (results.first == "" && results.second == "")
         return;
 
     foreach (Apps* app, currentDownload->apps) {
         if (results.first != "" && app->type() == "os") {
-            app->setPackageId(fixVariantName(app->packageId(), results.first, 0));
-            app->setName(app->packageId().split("/").last());
+            app->setUrl(fixVariantName(app->url(), results.first, 0));
+            app->setName(app->url().split("/").last());
             app->setFriendlyName(QFileInfo(app->name()).completeBaseName());
-            currentDownload->verifyLink(app->packageId(), "OS");
+            currentDownload->verifyLink(app->url(), "OS", _downloadDevice == 0 && _i != nullptr && _i->device != nullptr);
         } else if (results.second != "" && app->type() == "radio") {
-            app->setPackageId(fixVariantName(app->packageId(), results.second, 1));
-            app->setName(app->packageId().split("/").last());
+            app->setUrl(fixVariantName(app->url(), results.second, 1));
+            app->setName(app->url().split("/").last());
             app->setFriendlyName(QFileInfo(app->name()).completeBaseName());
-            currentDownload->verifyLink(app->packageId(), "Radio");
+            currentDownload->verifyLink(app->url(), "Radio", _downloadDevice == 0 && _i != nullptr && _i->device != nullptr);
         }
     }
     // Refresh the names in QML
     currentDownload->nextFile(0);
-#endif
+}
 }
 
 
 // Creates a string with a list of URLs based on current 'Search Device'
 // and converted to current 'Download Device'
-QString MainNet::convertLinks(int downloadDevice, QString prepend)
+QString MainNet::convertLinks(QString prepend)
 {
     bool convert = true;
     QPair<QString,QString> results;
-#ifndef BLACKBERRY
-    results = _i->getConnected(downloadDevice);
-    if (results.first == "" && results.second == "")
-        convert = false;
-#endif
+
+    if (_i != nullptr) {
+        results = _i->getConnected(_downloadDevice, _versionRelease.startsWith("10.3.0"));
+        if (results.first == "" && results.second == "")
+            convert = false;
+    }
 
     QString updated;
     foreach (Apps* app, _updateAppList) {
         if (!app->isMarked())
             continue;
-        QString item = app->packageId();
+        QString item = app->url();
         if (convert) {
             if (results.first != "" && app->type() == "os")
                 item = fixVariantName(item, results.first, 0);
@@ -259,10 +263,11 @@ QString MainNet::convertLinks(int downloadDevice, QString prepend)
 
 void MainNet::downloadLinks(int downloadDevice)
 {
+    _downloadDevice = downloadDevice;
     // Have we been here before? Starting but ids already generated. Maybe links were verified, so skip this
     if (currentDownload->maxId == 0) {
         currentDownload->setApps(_updateAppList, _versionRelease);
-        fixApps(downloadDevice);
+        fixApps();
         // Did we find any apps?
         if (currentDownload->maxId == 0) {
             currentDownload->reset();
@@ -270,7 +275,7 @@ void MainNet::downloadLinks(int downloadDevice)
         }
     }
     if (currentDownload->toVerify == 0) {
-        currentDownload->download();
+        currentDownload->download(_downloadDevice == 0 && _i != nullptr && _i->device != nullptr);
     }
 }
 
@@ -279,33 +284,6 @@ QString MainNet::NPCFromLocale(int carrier, int country) {
     homeNPC.sprintf("%03d%03d%d", carrier, country, carrier ? 30 : 60);
     return homeNPC;
 }
-
-static QStringList dev[] = {
-    // 0 = Z30 (A Series) + Classic
-    QStringList() << "STA 100-1" << "STA 100-2" << "STA 100-3" << "STA 100-4" << "STA 100-5" << "STA 100-6" << "Classic AT/T" << "Classic Verizon" << "Classic ROW" << " Classic NA",
-    QStringList() << "8C00240A" << "8D00240A" << "8E00240A" << "8F00240A" << "9500240A" << "B500240A" << "9400270A" << "9500270A" << "9600270A" << "9700270A",
-    // 1 = Z10 (L Series) OMAP
-    QStringList() << "STL 100-1",
-    QStringList() << "4002607",
-    // 2 = Z10 (L Series) Qualcomm + P9982  (TK Series)
-    QStringList() << "STL 100-2" << "STL 100-3" << "STL 100-4" << "STK 100-1" << "STK 100-2",
-    QStringList() << "8700240A" << "8500240A" << "8400240A" << "A500240A" << "A600240A",
-    // 3 = Z3  (J Series) + Cafe
-    QStringList() << "STJ 100-1" << "Cafe NA" << "Cafe Europe/ME/Asia" << "Cafe ROW" << "Cafe AT/T" << "Cafe LatinAm" << "Cafe Verizon",
-    QStringList() << "04002E07" << "87002A07" << "8C002A07" << "9600240A" << "9700240A" << "9C00240A" << "A700240A",
-    // 4 = Passport / Q30 (W Series)
-    QStringList() << "SQW 100-1" << "SQW 100-2" << "SQW 100-3" << "SQW 100-4" << "Passport Wichita",
-    QStringList() << "87002C0A" << "85002C0A" << "84002C0A" << "86002C0A" << "8C002C0A",
-    // 5 = Q5 (R Series) + Q10 (N Series) + P9983 (QK Series)
-    QStringList() << "SQR 100-1" << "SQR 100-2" << "SQR 100-3" << "SQN 100-1" << "SQN 100-2" << "SQN 100-3" << "SQN 100-4" << "SQN 100-5" << "SQK 100-1" << "SQK 100-2",
-    QStringList() << "84002A0A" << "85002A0A" << "86002A0A" << "8400270A" << "8500270A" << "8600270A" << "8C00270A" << "8700270A"  << "8F00270A" << "8E00270A",
-    // 6 = Dev Alpha
-    QStringList() << "Alpha A" << "Alpha B" << "Alpha C",
-    QStringList() << "4002307" << "4002607" << "8D00270A",
-    // 7 = Ontario Series
-    QStringList() << "Ontario NA" << "Ontario Verizon" << "Ontario Sprint" << "Ontario ROW" << "China",
-    QStringList() << "AE00240A" << "AF00240A" << "B400240A" << "B600240A" << "BC00240A",
-};
 
 QString MainNet::nameFromVariant(unsigned int device, unsigned int variant) {
     Q_ASSERT(variantCount(device) > variant);
@@ -326,7 +304,7 @@ void MainNet::updateDetailRequest(QString delta, QString carrier, QString countr
     QString version = "2.2.1";
 
     // Blackberry doesn't return results on these servers anymore, so their usefulness is gone
-/*    switch (server)
+    /*    switch (server)
     {
     case 4:
         requestUrl = "https://alpha2.sl.eval.blackberry.com/slscse/updateDetails/";
@@ -382,6 +360,7 @@ void MainNet::updateDetailRequest(QString delta, QString carrier, QString countr
     setScanning((variant != 0) ? 1 : variantCount(device));
     if (_scanning > 1)
         setMultiscan(true);
+
     for (int i = start; i < end; i++) {
         QString query = QString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
                                 "<updateDetailRequest version=\"%1\" authEchoTS=\"%2\">"
@@ -467,6 +446,7 @@ void MainNet::showFirmwareData(QByteArray data, QString variant)
                     newApp->setIsAvailable(true);
                     if (_i != nullptr && _i->device != nullptr) {
                         newApp->setIsInstalled(isVersionNewer(_i->device->os, newApp->version(), true));
+                        newApp->setInstalledVersion(_i->device->os);
                     }
                 } else if (type == "system:radio") {
                     radio = newApp->version();
@@ -475,6 +455,7 @@ void MainNet::showFirmwareData(QByteArray data, QString variant)
                     newApp->setIsAvailable(true);
                     if (_i != nullptr && _i->device != nullptr) {
                         newApp->setIsInstalled(isVersionNewer(_i->device->radio, newApp->version(), true));
+                        newApp->setInstalledVersion(_i->device->radio);
                     }
                 } else {
                     newApp->setType("application");
@@ -483,13 +464,14 @@ void MainNet::showFirmwareData(QByteArray data, QString variant)
                             bool isSameApp = newApp->packageId().compare(app->packageId()) == 0;
                             if (isSameApp) {
                                 newApp->setIsInstalled(isVersionNewer(app->version(), newApp->version(), true));
+                                newApp->setInstalledVersion(app->version());
                                 break;
                             }
                         }
                     }
                 }
                 // For lack of a better name, the url
-                newApp->setPackageId(currentaddr + "/" + newApp->name());
+                newApp->setUrl(currentaddr + "/" + newApp->name());
                 newApp->setName(newApp->name().split("/").last());
 
                 newApps.append(newApp);
@@ -587,6 +569,23 @@ void MainNet::showFirmwareData(QByteArray data, QString variant)
     // All scans complete
     if (_scanning <= 0) {
         setMultiscan(false);
+    }
+}
+
+void MainNet::newDeviceConnected()
+{
+    foreach(Apps* newApp, _updateAppList) {
+        foreach(Apps* app, _i->appQList()) {
+            bool isSameApp = newApp->packageId().compare(app->packageId()) == 0;
+            if (isSameApp) {
+                newApp->setIsInstalled(isVersionNewer(app->version(), newApp->version(), true));
+                newApp->setInstalledVersion(app->version());
+                break;
+            } else {
+                newApp->setIsInstalled(false);
+                newApp->setInstalledVersion("");
+            }
+        }
     }
 }
 

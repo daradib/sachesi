@@ -24,6 +24,7 @@
 #include <QNetworkAccessManager>
 #include <QMessageBox>
 #include "apps.h"
+#include "ports.h"
 
 // Need to get creative with CURR_FILE when threading comes
 enum {
@@ -96,7 +97,45 @@ public:
         return toVerify > 0;
     }
 
-    void verifyLink(QString url, QString type) {
+    void verifyDelta(int i) {
+        toVerify++;
+        emit verifyingChanged();
+        QString url = apps.at(i)->url();
+        QString oldVersion = apps.at(i)->installedVersion();
+        oldVersion.replace('.','_');
+        url.chop(4);
+        url.append(QString("+patch+%1.bar").arg(oldVersion));
+        QNetworkReply* reply = _manager->head(QNetworkRequest(url));
+
+        QObject::connect(reply, &QNetworkReply::finished, [=]() {
+            uint status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toUInt();
+            if (status == 200 || (status > 300 && status <= 308)) {
+                uint realSize = reply->header(QNetworkRequest::ContentLengthHeader).toUInt();
+                // Adjust the expected size
+                totalSize += realSize - apps.at(i)->size();
+                apps.at(i)->setSize(realSize);
+                apps.at(i)->setUrl(url);
+                emit sizeChanged();
+                emit appsChanged();
+            }
+            toVerify--;
+            emit verifyingChanged();
+            // Verified. Now lets complete
+            if (toVerify == 0)
+                startDownload();
+            reply->deleteLater();
+        });
+        QObject::connect(reply, static_cast<void (QNetworkReply::*)(QNetworkReply::NetworkError)>(&QNetworkReply::error), [=]() {
+            toVerify--;
+            emit verifyingChanged();
+            // Verified. Now lets complete
+            if (toVerify == 0)
+                startDownload();
+            reply->deleteLater();
+        });
+    }
+
+    void verifyLink(QString url, QString type, bool delta) {
         toVerify++;
         emit verifyingChanged();
         QNetworkReply* reply = _manager->head(QNetworkRequest(url));
@@ -119,7 +158,7 @@ public:
                 emit verifyingChanged();
                 // Verified. Now lets complete
                 if (toVerify == 0)
-                    download();
+                    download(delta);
             } else {
                 reset();
                 QMessageBox::information(NULL, "Error", "The server did not have the " + type + " for the selected 'Download Device'.\n\nPlease try a different search result or a different download device.");
@@ -131,10 +170,25 @@ public:
                 QMessageBox::information(NULL, "Error", "Encountered an error when attempting to verify the " + type +".\n Aborting download.");
                 reset();
             }
+            reply->deleteLater();
         });
     }
 
-    void download() {
+    void download(bool delta) {
+        // Check for deltas
+        if (delta) { // Checking for connected
+            for (int i = 0; i < apps.count(); i++) {
+                if (!apps.at(i)->isMarked() || apps.at(i)->installedVersion().isEmpty())
+                    continue;
+                if (isVersionNewer(apps.at(i)->version(), apps.at(i)->installedVersion(), false))
+                    verifyDelta(i);
+            }
+        }
+        if (toVerify == 0)
+            startDownload();
+    }
+
+    void startDownload() {
         running = true;
         // OS and Radio files were just verified, so lets check if we already have them
         for (int i = 0; i < apps.count(); i++) {
@@ -280,7 +334,7 @@ public:
         if (i == CURR_FILE)
             i = id;
         if (i >= 0 && i < maxId)
-            return apps[i]->packageId();
+            return apps[i]->url();
         else
             return "";
     }
