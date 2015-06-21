@@ -15,10 +15,10 @@ Rename libquazip to libquazip-qt5 for Qt5 build.
  1 file changed, 2 insertions(+), 3 deletions(-)
 
 diff --git a/Sachesi.pro b/Sachesi.pro
-index b85333c..17f9560 100644
+index b7f9bf7..4219285 100644
 --- a/Sachesi.pro
 +++ b/Sachesi.pro
-@@ -8,7 +8,7 @@ VERSION = 2.0.0
+@@ -8,7 +8,7 @@ VERSION = 2.0.1
  
  # Global specific
  CONFIG += c++11
