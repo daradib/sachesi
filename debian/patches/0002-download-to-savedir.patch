@@ -1,0 +1,57 @@
+From: Dara Adib <daradib@ocf.berkeley.edu>
+Date: Sat, 20 Jun 2015 20:15:11 -0700
+Subject: download to savedir
+
+Currently, Sachesi downloads to the current directory. If the
+current directory is not writable, it keeps re-downloading.
+Instead, download to directory returned by getSaveDir.
+
+In getSaveDir, change DesktopLocation to DownloadLocation.
+
+Pull request submitted to upstream:
+https://github.com/xsacha/Sachesi/pull/64
+---
+ src/downloadinfo.h     | 2 +-
+ src/ports.cpp          | 2 +-
+ src/search/mainnet.cpp | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/downloadinfo.h b/src/downloadinfo.h
+index 9931501..bca15c7 100644
+--- a/src/downloadinfo.h
++++ b/src/downloadinfo.h
+@@ -299,7 +299,7 @@ public:
+     }
+ 
+     void setApps(QList<Apps*> newApps, QString& version) {
+-        baseDir = QDir::currentPath() + "/" + version;
++        baseDir = getSaveDir() + "/" + version;
+ 
+         // Check which apps user wanted
+         foreach (Apps* newApp, newApps) {
+diff --git a/src/ports.cpp b/src/ports.cpp
+index 8f0e18c..31bdb2a 100644
+--- a/src/ports.cpp
++++ b/src/ports.cpp
+@@ -116,7 +116,7 @@ QString getSaveDir() {
+     if (QFileInfo(writable).isWritable())
+         return writable;
+ 
+-    return QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
++    return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+ #endif
+ }
+ 
+diff --git a/src/search/mainnet.cpp b/src/search/mainnet.cpp
+index 81fd59d..7a2e24d 100644
+--- a/src/search/mainnet.cpp
++++ b/src/search/mainnet.cpp
+@@ -533,7 +533,7 @@ void MainNet::showFirmwareData(QByteArray data, QString variant)
+ 
+                 // No need to check OS and Radio as they are variable
+                 if (app->type() == "application") {
+-                    bool exists = QFile(QDir::currentPath() + "/" + _versionRelease + "/" + app->name()).size() == app->size();
++                    bool exists = QFile(getSaveDir() + "/" + _versionRelease + "/" + app->name()).size() == app->size();
+                     app->setIsAvailable(!exists);
+                 }
+                 app->setIsMarked(app->isAvailable() && !app->isInstalled());
